@@ -1,0 +1,108 @@
+cd /public/home/chaohe/sorghum/chip/align/circos
+module load Perl/5.26.1
+module load Circos/0.69-8
+####prepare files
+##gene density file
+bedops --chop 10000 --stagger 10000 -x  /public/home/chaohe/sorghum/RNA-seq/db/Sorghum_bicolor.genome_table.txt > gene_10kb.bed
+perl -p -i -e 's/chr//g' gene_10kb.bed
+bedmap --echo --count --delim '\t'  gene_10kb.bed  /public/home/chaohe/sorghum/chip/align/Sorghum_geneR1.bed > gene_10kb_density.txt
+##prepare gene expression files in R
+#R
+setwd("final_RNAseq")
+tpm <- read.csv("all_tpm_expression.csv")
+head(tpm)
+row.names(tpm) <- tpm[,1]
+CL <- tpm[,2:4]
+CR <- tpm[,5:7]
+CL$average <- rowMeans(CL)
+CR$average <- rowMeans(CR)
+head(CL)
+head(CR)
+###CR CL add gene position
+pos <- read.table("geneR1.bed",sep="\t",row.names=5)
+head(pos)
+cl_pos <- merge(CL,pos,by="row.names",all=F)
+cr_pos <- merge(CR,pos,by="row.names",all=F)
+head(cl_pos)
+head(cr_pos)
+cl_pos <- cl_pos[,c(6,7,8,5)]
+cr_pos <- cr_pos[,c(6,7,8,5)]
+cl_pos$type <- rep("id=CL",nrow(cl_pos))
+cr_pos$typpe <- rep("id=CR",nrow(cr_pos))
+colnames(cl_pos) <- colnames(cr_pos)
+rna <- rbind(cl_pos,cr_pos)
+rna <- rna[order(rna$V1,rna$V2),]
+head(rna)
+write.table(rna,"RNA.txt",sep="\t",row.names=F)
+perl -p -i -e 's/\"//g' RNA.txt
+perl -p -i -e 's/^M//g' RNA.txt
+###make signal files of chip-seq
+conda install -c bioconda ucsc-bigwigtobedgraph
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K4me2_rpkm.bw "$i"K4me2_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K27me3_rpkm.bw "$i"K27me3_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K27ac_rpkm.bw "$i"K27ac_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K43_rpkm.bw "$i"K43_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K36me3_rpkmR1.bw "$i"K36me3_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"KH2AZ_rpkm.bw "$i"KH2AZ_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "for i in CL CR; do bigWigToBedGraph ../"$i"K9ac_rpkm.bw "$i"K9ac_rpkm.bedGraph;done"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "bigWigToBedGraph /public/home/chaohe/sorghum/mnase/nucleosome/CRMN.like.bw CRMN.bedGraph"
+bsub -J k42 -n 10 -o %J.out -e %J.err -q normal "bigWigToBedGraph /public/home/chaohe/sorghum/mnase/nucleosome/CLMN.like.bw CLMN.bedGraph"
+#Dividing the genome into 10kb region files
+bedops --chop 10000 --stagger 10000 -x  /public/home/chaohe/sorghum/RNA-seq/db/Sorghum_bicolor.genome_table.txt > gene_10kb.bed
+perl -p -i -e 's/chr//g' gene_10kb.bed
+#Computing histone modification signals within each 10 kb regions
+awk '{if($1 != 10) print $0}' gene_10kb.bed > gene_10kb1.bed
+awk '{if($1 == 10) print $0}' gene_10kb.bed > gene_10kb2.bed
+awk '{print $1"\t"$2"\t"$3"\t.\t"$4}'  CRMN.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb.bed -  > CRMN_10k.bedgraph
+awk '{print $1"\t"$2"\t"$3"\t.\t"$4}'  CLMN.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb.bed -  > CLMN_10k.bedgraph
+i="CR"
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K4me2_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K4me2_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K27me3_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K27ac_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K43_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K43_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K36me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K36me3_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"KH2AZ_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"KH2AZ_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K9ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K9ac_10k.bedgraph1
+i="CL"
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K4me2_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K4me2_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K27me3_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K27ac_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K43_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K43_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K36me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K36me3_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"KH2AZ_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"KH2AZ_10k.bedgraph1
+awk '{if($1 != 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K9ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb1.bed -  > "$i"K9ac_10k.bedgraph1
+i="CR"
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K4me2_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K4me2_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K27me3_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K27ac_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K43_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K43_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K36me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K36me3_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"KH2AZ_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"KH2AZ_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K9ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K9ac_10k.bedgraph2
+i="CL"
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K4me2_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K4me2_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K27me3_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K27ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K27ac_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K43_rpkm.bedGraph | bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K43_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K36me3_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K36me3_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"KH2AZ_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"KH2AZ_10k.bedgraph2
+awk '{if($1 == 10)print $1"\t"$2"\t"$3"\t.\t"$4}'  "$i"K9ac_rpkm.bedGraph |  bedmap --echo --sum --delim '\t'  gene_10kb2.bed -  > "$i"K9ac_10k.bedgraph2
+for i in K4me2 K27me3 K27ac K43 K36me3 KH2AZ K9ac;
+do
+cat CR"$i"_10k.bedgraph1 CR"$i"_10k.bedgraph2 > CR"$i"_10k.bedgraph
+cat CL"$i"_10k.bedgraph1 CL"$i"_10k.bedgraph2 > CL"$i"_10k.bedgraph
+done
+#rm "$i"K4me2_10k.bedgraph "$i"K27me3_10k.bedgraph "$i"K27ac_10k.bedgraph "$i"K43_10k.bedgraph "$i"K36me3_10k.bedgraph "$i"KH2AZ_10k.bedgraph "$i"K9ac_10k.bedgraph
+####visualization
+circos -conf circosR2.conf
+####compress svg
+module load nodejs/8.11.3
+npm install -g svgo 
+svgo circosR1.svg
+#convert svg to pdf
+module load Python/3.8.6
+pip3 install cairosvg
+python
+import cairosvg
+cairosvg.svg2pdf(url='circos.svg', write_to='circos_heatmap.pdf')
+
